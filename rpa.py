@@ -1,7 +1,38 @@
+"""
+rpa.py
+This module encapsulates the Selenium library into utility functions to make code less verbose
+and more Pythonic. It uses XPath as the default locator for interacting with page elements.
+Key Features:
+- Simplifies common operations such as clicking, filling input fields, retrieving text, and checking element presence.
+- Reduces boilerplate code by encapsulating explicit wait configurations.
+- Some functions offer a `timeout` parameter to customize wait times, providing flexibility for varying application response times.
+- Provides a cleaner and more intuitive interface for element manipulation.
+- Supports custom exception handling and logging.
+Usage Example:
+    import rpa
+    # Navigate to a URL
+    rpa.get("http://www.myurl.com")
+    # Click a button
+    rpa.click("//button[@id='submit']")
+    # Fill a text field
+    rpa.send("//input[@name='username']", "my_user")
+    # Get the text of an element
+    text = rpa.find("//div[@class='message']").text
+Requirements:
+- Selenium WebDriver must be configured and available.
+- Familiarity with XPath for locating elements is recommended.
+Conventions:
+- XPath is the default locator for elements.
+Author:
+Edilson Wagner Ribeiro - EdPyDev
+edpydev@gmail.com
+ewribeiro (GitHub)
+"""
+
 import time
 from functools import cache
-from typing import Literal
 from selenium.webdriver.remote.webelement import WebElement
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver import Chrome
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
@@ -10,28 +41,83 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.select import Select
 from selenium.webdriver.support.wait import WebDriverWait
 from typing import List
+import os
+from loguru import logger
 
 
 @cache
 def get_driver() -> Chrome:
     """
-    Initializes a new Chrome WebDriver instance and maximizes the window.
-
+    Initializes a new Chrome WebDriver instance with custom configurations and maximizes the window.
+    This function uses the @cache decorator from functools to ensure that the same WebDriver instance is reused for subsequent calls,
+    avoiding redundant initializations and improving performance.
+    The use of caching is particularly beneficial when creating a new WebDriver instance is resource-intensive.
+    Features:
+        - Configures a custom user agent for the browser.
+        - Runs in headless mode for better performance in non-interactive environments.
+        - Disables notifications and certain automation flags to minimize interference.
+        - Sets the download directory to 'Downloads' in the user's home folder. The directory is created
+          if it does not already exist.
+        - Ensures downloaded PDF files are saved directly without showing a prompt, and prevents
+          PDFs from being opened in the browser.
     Returns:
-        Chrome: A new Chrome WebDriver instance.
+        Chrome: A cached instance of the Chrome WebDriver.
     """
-    driver = Chrome()
+
+    # Configure download directory
+    user_home = os.path.expanduser("~")
+    download_dir = os.path.join(user_home, "Downloads")
+    os.makedirs(download_dir, exist_ok=True)
+
+    options = Options()
+    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    options.add_argument(f"user-agent={user_agent}")
+    # options.add_argument("--headless=new")
+    options.add_argument("--disable-notifications")
+    options.add_experimental_option(
+        "excludeSwitches", ["enable-logging", "enable-automation"]
+    )
+    options.add_experimental_option(
+        "prefs",
+        {
+            "download.default_directory": download_dir,
+            "download.prompt_for_download": False,
+            "download.directory_upgrade": True,
+            "plugins.always_open_pdf_externally": True,
+            "plugins.plugins_list": [{"enabled": False, "name": "Chrome PDF Viewer"}],
+        },
+    )
+    driver = Chrome(options=options)
+    driver.set_window_size(1920, 1080)
     driver.maximize_window()
     return driver
 
 
-def get_wait(timeout: int = 30) -> WebDriverWait:
+def get(url: str):
+    """
+    Navigates the web driver to a specific URL and maximizes the window.
+    Args:
+        url (str): The URL to navigate to.
+    """
+    get_driver().get(url=url)
+
+
+@cache
+def get_action() -> ActionChains:
+    """
+    Creates an ActionChains object for performing complex user interactions.
+    Returns:
+        ActionChains: An ActionChains object for user interactions.
+    """
+    return ActionChains(get_driver())
+
+
+@cache
+def get_wait(timeout: int = 12) -> WebDriverWait:
     """
     Creates a WebDriverWait object with a specific timeout.
-
     Args:
         timeout (int, optional): The maximum wait time in seconds. Defaults to 30.
-
     Returns:
         WebDriverWait: A WebDriverWait object for explicit waits.
     """
@@ -40,300 +126,348 @@ def get_wait(timeout: int = 30) -> WebDriverWait:
     return wait
 
 
-def get_action() -> ActionChains:
+def wait_alert(timeout: int = 12) -> None:
     """
-    Creates an ActionChains object for performing complex user interactions.
-
-    Returns:
-        ActionChains: An ActionChains object for user interactions.
-    """
-    driver = get_driver()
-    action = ActionChains(driver)
-    return action
-
-
-def get(url: str):
-    """
-    Navigates the web driver to a specific URL and maximizes the window.
-
+    Waits for an alert to be present.
     Args:
-        url (str): The URL to navigate to.
+        timeout (int): Maximum wait time in seconds. Defaults to 3.
     """
-    driver = get_driver()
-    driver.maximize_window()
-    driver.get(url=url)
+    get_wait(timeout).until(EC.alert_is_present())
 
 
-def find(xpath: str) -> WebElement:
+def wait_clickable(xpath: str, timeout: int = 12) -> WebElement:
+    """
+    Waits for the specified element to be clickable.
+    Args:
+        xpath (str): XPath of the element.
+        timeout (int): Maximum wait time in seconds. Defaults to 3.
+    """
+    return get_wait(timeout).until(EC.element_to_be_clickable((By.XPATH, xpath)))
+
+
+def wait_frame(xpath: str, timeout: int = 12) -> None:
+    """
+    Waits for the specified frame to be available and switches to it.
+    Args:
+        xpath (str): XPath of the frame.
+        timeout (int): Maximum wait time in seconds. Defaults to 3.
+    """
+    get_wait(timeout).until(
+        EC.frame_to_be_available_and_switch_to_it((By.XPATH, xpath))
+    )
+
+
+def wait_invisibility(xpath: str, timeout: int = 12) -> None:
+    """
+    Waits for the specified element to be invisible.
+    Args:
+        xpath (str): XPath of the element.
+        timeout (int): Maximum wait time in seconds. Defaults to 3.
+    """
+    get_wait(timeout).until(EC.invisibility_of_element_located((By.XPATH, xpath)))
+
+
+def wait_selectable(xpath: str, timeout: int = 12) -> WebElement:
+    """
+    Waits for the specified element to be selected.
+    Args:
+        xpath (str): XPath of the element.
+        timeout (int): Maximum wait time in seconds. Defaults to 3.
+    """
+    return get_wait(timeout).until(EC.element_to_be_selected((By.XPATH, xpath)))
+
+
+def wait_text_attribute(
+    xpath: str, attribute: str, text: str, timeout: int = 12
+) -> None:
+    """
+    Waits for a specific text to be present in an element's attribute.
+    Args:
+        xpath (str): XPath of the element.
+        attribute (str): Name of the attribute.
+        text (str): Expected text in the attribute.
+        timeout (int): Maximum wait time in seconds. Defaults to 3.
+    """
+    get_wait(timeout).until(
+        EC.text_to_be_present_in_element_attribute((By.XPATH, xpath), attribute, text)
+    )
+
+
+def wait_partial_url(url: str, timeout: int = 12) -> None:
+    """
+    Espera que a URL atual contenha a string especificada.
+    Args:
+        url (str): Substring da URL esperada.
+        timeout (int): Tempo máximo de espera em segundos. Defaults to 3.
+    """
+    get_wait(timeout).until(EC.url_contains(url))
+
+
+def wait_visibility(xpath: str, timeout: int = 12) -> None:
+    """
+    Waits for the current URL to contain the specified string.
+    Args:
+        url (str): Substring of the expected URL.
+        timeout (int): Maximum wait time in seconds. Defaults to 3.
+    """
+    return get_wait(timeout).until(EC.visibility_of_element_located((By.XPATH, xpath)))
+
+
+def wait_all_visible(xpath: str, timeout: int = 12) -> List[WebElement]:
+    """
+    Waits for all specified elements to be visible.
+    Args:
+        xpath (str): XPath of the elements.
+        timeout (int): Maximum wait time in seconds. Defaults to 3.
+    """
+    return get_wait(timeout).until(
+        EC.visibility_of_all_elements_located((By.XPATH, xpath))
+    )
+
+
+def wait_new_window(timeout: int = 12) -> None:
+    """
+    Waits for a new window to be opened.
+    Args:
+        timeout (int): Maximum wait time in seconds. Defaults to 3.
+    """
+    get_wait(timeout).until(EC.new_window_is_opened(get_driver().window_handles))
+
+
+def find(xpath: str, timeout: int = 12) -> WebElement:
     """
     Finds a web element based on its XPath.
-
     Args:
         xpath (str): The XPath of the element to find.
-
     Returns:
         WebElement: The found web element.
     """
-    driver = get_driver()
-    element = driver.find_element(By.XPATH, xpath)
-    wait = get_wait()
-    wait.until(EC.visibility_of_element_located((By.XPATH, xpath)))
-    return element
+    return wait_visibility(xpath, timeout)
 
 
-def find_all(xpath: str) -> List[WebElement]:
+def find_all(xpath: str, timeout: int = 12) -> List[WebElement]:
     """
     Finds all web elements matching a specific XPath.
-
     Args:
         xpath (str): The XPath to find elements.
-
     Returns:
         List[WebElement]: A list of all found web elements.
     """
-    driver = get_driver()
-    elements = driver.find_elements(By.XPATH, xpath)
-    return elements
+    return wait_all_visible(xpath, timeout)
 
 
-def click(xpath: str):
+def click(xpath: str, timeout: int = 12):
     """
     Clicks on a web element located by its XPath.
-
     Args:
         xpath (str): The XPath of the element to click.
     """
-    driver = get_driver()
-    wait = get_wait()
-    wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
-    driver.find_element(By.XPATH, xpath).click()
+    wait_clickable(xpath, timeout).click()
 
 
-def send(xpath: str, text: str):
+def send(xpath: str, text: str, timeout: int = 12):
     """
     Sends text to a web element located by its XPath.
-
     Args:
         xpath (str): The XPath of the element to send text to.
         text (str): The text to send.
     """
-    driver = get_driver()
-    wait = get_wait()
-    wait.until(EC.visibility_of_element_located((By.XPATH, xpath)))
-    driver.find_element(By.XPATH, xpath).send_keys(text)
+    wait_clickable(xpath, timeout).send_keys(text)
 
 
-def select_by_value(xpath: str, value: str):
+def select_by_value(xpath: str, value: str, timeout: int = 12):
     """
     Selects an option from a dropdown element using its value.
-
     Args:
         xpath (str): The XPath of the dropdown element.
         value (str): The value of the option to select.
     """
-    driver = get_driver()
-    element = driver.find_element(By.XPATH, xpath)
-    Select(element).select_by_value(value)
+    Select(wait_clickable(xpath, timeout)).select_by_value(value)
 
 
-def select_by_visible_text(xpath: str, visible_text: str) -> None:
+def select_by_visible_text(xpath: str, visible_text: str, timeout: int = 12) -> None:
     """
     Selects an option from a dropdown element using its visible text.
-
     Args:
         xpath (str): The XPath of the dropdown element.
         visible_text (str): The visible text of the option to select.
     """
-    element: WebElement = find(xpath)  # Obtém o elemento usando a função 'find'
-    Select(element).select_by_visible_text(visible_text)
+    Select(wait_clickable(xpath, timeout)).select_by_visible_text(visible_text)
 
 
-def is_selected(xpath: str) -> bool:
+def is_selected(xpath: str, timeout: int = 12) -> bool:
     """
-    Verifica se um elemento está selecionado.
-
+    Checks if an element is selected.
     Args:
         xpath (str): The XPath of the element to check.
-
     Returns:
-        bool: True se o elemento estiver selecionado, False caso contrário.
+        bool: True if the element is selected, False otherwise.
     """
-    element: WebElement = find(xpath)  # Obtém o elemento usando a função 'find'
-    wait = get_wait()
-    return wait.until(EC.element_selection_state_to_be(element, True))
+    return get_wait(timeout).until(
+        EC.element_selection_state_to_be(find(xpath, timeout), True)
+    )
 
 
-def is_not_selected(xpath: str) -> bool:
+def is_not_selected(xpath: str, timeout: int = 12) -> bool:
     """
-    Verifica se um elemento não está selecionado.
-
+    Checks if an element is not selected.
     Args:
         xpath (str): The XPath of the element to check.
-
     Returns:
-        bool: True se o elemento não estiver selecionado, False caso contrário.
+        bool: True if the element is not selected, False otherwise.
     """
-    element: WebElement = find(xpath)  # Obtém o elemento usando a função 'find'
-    wait = get_wait()
-    return wait.until(EC.element_selection_state_to_be(element, False))
+    return get_wait(timeout).until(EC.element_selection_state_to_be(find(xpath), False))
 
 
-def is_displayed(xpath: str) -> bool:
+def is_displayed(xpath: str, timeout: int = 12) -> bool:
     """
-    Verifica se o último elemento encontrado pelo XPath está visível.
-
+    Checks if the last element found by the XPath is visible.
     Args:
         xpath (str): The XPath to find the elements.
-
     Returns:
-        bool: True se o último elemento estiver visível, False caso contrário.
+        bool: True if the last element is visible, False otherwise.
     """
-    elements: List[WebElement] = find_all(xpath)  # Obtém os elementos usando a função 'find_all'
-    return elements and elements[-1].is_displayed()
-
-
-def wait(
-    type: Literal["alert", "click", "frame", "invisibility", "select", "text_attribute", "url", "visibility", "visibility_all", "window"],
-    xpath: str = None,
-    url: str = None,
-    atribute: str = None,
-    text: str = None,
-    timeout = 3
-) -> None:
-    """
-    Espera uma condição explícita no Selenium WebDriver com base no tipo de espera especificado.
-
-    Args:
-        type (Literal): O tipo de espera a ser realizada.
-        xpath (str, optional): O xpath do elemento (se aplicável).
-        url (str, optional): URL parcial a ser verificada (se aplicável).
-        atribute (str, optional): O atributo do elemento a ser verificado (se aplicável).
-        text (str, optional): O texto a ser verificado no atributo do elemento (se aplicável).
-        timeout (int, optional): Tempo máximo de espera em segundos. Defaults to 3.
-    """
-    driver = get_driver()
-    wait = get_wait(timeout=timeout)
-
-    match type:
-        case "alert":
-            wait.until(EC.alert_is_present((By.XPATH, xpath)))
-        case "click":
-            wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
-        case "frame":
-            wait.until(EC.frame_to_be_available_and_switch_to_it((By.XPATH, xpath)))
-        case "invisibility":
-            wait.until(EC.invisibility_of_element_located((By.XPATH, xpath)))
-        case "select":
-            wait.until(EC.element_to_be_selected((By.XPATH, xpath)))
-        case "text_attribute":
-            wait.until(
-                EC.text_to_be_present_in_element_attribute((By.XPATH, xpath), atribute, text)
-            )
-        case "url":
-            wait.until(EC.url_contains(url))
-        case "visibility":
-            wait.until(EC.visibility_of_element_located((By.XPATH, xpath)))
-        case "visibility_all":
-            wait.until(EC.visibility_of_all_elements_located((By.XPATH, xpath)))
-        case "window":
-            wait.until(EC.new_window_is_opened(driver.window_handles))
+    return find_all(xpath, timeout) and find_all(xpath, timeout)[-1].is_displayed()
 
 
 def select_js(option_value: str) -> None:
     """
-    Seleciona uma opção em um elemento select usando JavaScript.
-
+    Selects an option in a select element using JavaScript.
     Args:
-        option_value (str): O valor da opção a ser selecionada.
+        option_value (str): The value of the option to be selected.
     """
-    driver = get_driver()
-    script = f'''document.querySelector('[value="{option_value}"]').selected="selected"'''
-    driver.execute_script(script)
+    script = (
+        f'''document.querySelector('[value="{option_value}"]').selected="selected"'''
+    )
+    get_driver().execute_script(script)
 
 
 def set_value_js(css_selector: str, value: str) -> None:
     """
-    Define o valor de um elemento usando JavaScript.
-
+    Sets the value of an element using JavaScript.
     Args:
-        css_selector (str): O seletor CSS do elemento.
-        value (str): O novo valor do elemento.
+        css_selector (str): The CSS selector of the element.
+        value (str): The new value of the element.
     """
-    driver = get_driver()
     script = f'''document.querySelector('{css_selector}').value="{value}"'''
-    driver.execute_script(script)
+    get_driver().execute_script(script)
 
 
 def click_js(css_selector: str) -> None:
     """
-    Clica em um elemento usando JavaScript.
-
+    Clicks on an element using JavaScript.
     Args:
-        css_selector (str): O seletor CSS do elemento.
+        css_selector (str): The CSS selector of the element.
     """
-    driver = get_driver()
     script = f"""document.querySelector('{css_selector}').click()"""
-    driver.execute_script(script)
+    get_driver().execute_script(script)
 
 
 def quit() -> None:
     """
-    Fecha o navegador e encerra a sessão do WebDriver.
+    Closes the browser and ends the WebDriver session.
     """
-    driver = get_driver()
-    driver.quit()
+    get_driver().quit()
 
 
-def sleep(n: int) -> None:
+def sleep(seconds: int) -> None:
     """
-    Pausa a execução do script por um determinado número de segundos.
-
+    Pauses the execution of the script for a given number of seconds.
     Args:
-        n (int): O número de segundos para pausar.
+        seconds (int): The number of seconds to pause.
     """
-    time.sleep(n)
+    time.sleep(seconds)
 
 
 def run_script(script: str) -> None:
     """
-    Executa um script JavaScript no contexto do navegador.
-
+    Executes a JavaScript script in the context of the browser.
     Args:
-        script (str): O script JavaScript a ser executado.
+        script (str): The JavaScript script to be executed.
     """
-    driver = get_driver()
-    driver.execute_script(script)
+    get_driver().execute_script(script)
 
 
 def scroll_start() -> None:
     """
-    Rola a página para o topo.
+    Scrolls the page to the top.
     """
-    driver = get_driver()
-    driver.execute_script("window.scrollTo(0, 0);")
+    get_driver().execute_script("window.scrollTo(0, 0);")
 
 
 def scroll_end() -> None:
     """
-    Rola a página para o final.
+    Scrolls the page to the bottom.
     """
-    driver = get_driver()
-    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+    get_driver().execute_script("window.scrollTo(0, document.body.scrollHeight);")
 
 
 def keys() -> Keys:
     """
-    Retorna um objeto Keys para simular ações de teclado.
-
+    Returns a Keys object to simulate keyboard actions.
     Returns:
-        Keys: O objeto Keys do Selenium.
+        Keys: The Keys object from Selenium.
     """
     return Keys
 
 
 def exit_iframe() -> None:
     """
-    Sai do iframe atual e retorna para o contexto principal da página.
+    Exits the current iframe and returns to the main page context.
     """
-    driver = get_driver()
-    driver.switch_to.default_content()
+    get_driver().switch_to.default_content()
+
+
+def switch_window(n: int) -> None:
+    """
+    Switches to the specified window.
+    Args:
+        n (int): The window number.
+    """
+    get_driver().switch_to.window(get_driver().window_handles[n])
+
+
+def close() -> None:
+    """
+    Closes the current window.
+    """
+    get_driver().close()
+
+
+def screenshot(filename: str) -> None:
+    """
+    Saves a screenshot of the current window to a PNG image file.
+    """
+    get_driver().save_screenshot(filename)
+
+
+def wait_download(file_path: str, check_interval: int = 1, max_equal_readings: int = 3):
+    """
+    Ensures that a file download is complete by monitoring the file size
+    at regular intervals and stopping when the size remains the same for
+    a defined number of consecutive readings.
+    :param file_path: Path to the file to be monitored.
+    :param check_interval: Time interval (in seconds) between readings.
+    :param max_equal_readings: Number of consecutive readings with the same size to stop the monitoring.
+    """
+    while not os.path.isfile(file_path):
+        logger.error(f"Arquivo não encontrado: {file_path}")
+        time.sleep(1)
+    previous_size = -1
+    equal_readings = 0
+    while equal_readings < max_equal_readings:
+        current_size = os.path.getsize(file_path)
+        if current_size == previous_size:
+            equal_readings += 1
+        else:
+            equal_readings = 0
+        previous_size = current_size
+        logger.info(
+            f"Tamanho do arquivo: {current_size} bytes. Leituras iguais consecutivas: {equal_readings}"
+        )
+        if equal_readings < max_equal_readings:
+            time.sleep(check_interval)
+    logger.info(
+        f"Tamanho final do arquivo: {current_size} bytes. Monitoramento encerrado."
+    )
+    return current_size
