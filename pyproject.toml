@@ -1,9 +1,15 @@
 [project]
 name = "rpa"
 version = "0.1.0"
-description = "Sellenium Tools"
+description = "Robotic Process Automation"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "selenium>=4.27.1",
+    "ipykernel>=6.29.5",
+    "loguru>=0.7.3",
+    "pandas>=2.2.3",
+    "pillow>=11.1.0",
+    "playwright>=1.49.1",
+    "pyarrow>=18.1.0",
+    "pyautogui>=0.9.54",
 ]
